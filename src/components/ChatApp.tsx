@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Shield, Lock, Send, Phone, Video, Plus, Trash2, Copy, Check,
-  Hash, Users, KeyRound, LogOut, Sparkles, Link2, Radio, Zap,
+  Shield, Lock, Send, Phone, Video, Trash2, Copy, Check,
+  Hash, Users, KeyRound, LogOut, Sparkles, Link2, Radio, Zap, Heart,
 } from "lucide-react";
-import { CallOverlay, type CallMode } from "./CallOverlay";
+import { CallOverlay, type CallMode, type CallRole } from "./CallOverlay";
 import {
   generateChannelKey, exportKeyB64, importKeyB64, fingerprint,
   encryptJson, decryptJson, randomId,
 } from "@/lib/crypto";
 import { ChannelBus, type WireEvent } from "@/lib/channelBus";
+
 
 type Msg = { id: string; from: string; text: string; at: number; mine: boolean };
 
@@ -314,11 +315,18 @@ function ChannelView({
   onLeave: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [call, setCall] = useState<CallMode | null>(null);
+  const [call, setCall] = useState<
+    | { mode: CallMode; role: CallRole; peerName?: string; remoteOffer?: RTCSessionDescriptionInit }
+    | null
+  >(null);
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [easter, setEaster] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busRef = useRef<ChannelBus | null>(null);
+  const callRef = useRef<typeof call>(null);
+  callRef.current = call;
+
 
   // Bus lifecycle
   useEffect(() => {
@@ -353,8 +361,25 @@ function ChannelView({
         bus.send({ t: "presence-pong", name: channel.myName });
       } else if (ev.t === "presence-pong") {
         setChannel((c) => c ? { ...c, members: new Map(c.members).set(ev.name, Date.now()) } : c);
+      } else if (ev.t === "call-offer") {
+        if (ev.from === channel.myName) return;
+        if (callRef.current) return;
+        setCall({ mode: ev.mode, role: "callee", peerName: ev.from, remoteOffer: ev.sdp });
       }
     });
+
+    // Easter egg — type "parami" anywhere in the channel to unlock.
+    const buf: string[] = [];
+    const target = "parami";
+    const onKey = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (k.length !== 1) return;
+      buf.push(k);
+      if (buf.length > target.length) buf.shift();
+      if (buf.join("") === target) setEaster(true);
+    };
+    window.addEventListener("keydown", onKey);
+    const cleanupEgg = () => window.removeEventListener("keydown", onKey);
 
     // announce
     bus.send({ t: "join", name: channel.myName, at: Date.now() });
@@ -367,6 +392,7 @@ function ChannelView({
       leaveHandler();
       off();
       bus.close();
+      cleanupEgg();
       window.removeEventListener("beforeunload", leaveHandler);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -426,12 +452,13 @@ function ChannelView({
           >
             <Link2 className="h-3.5 w-3.5" /> INVITE
           </button>
-          <button onClick={() => setCall("audio")} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
+          <button onClick={() => setCall({ mode: "audio", role: "caller" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
             <Phone className="h-4 w-4" />
           </button>
-          <button onClick={() => setCall("video")} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
+          <button onClick={() => setCall({ mode: "video", role: "caller" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
             <Video className="h-4 w-4" />
           </button>
+
           <button onClick={wipe} className="h-9 w-9 rounded-lg border border-border hover:border-destructive hover:text-destructive transition flex items-center justify-center" title="wipe">
             <Trash2 className="h-4 w-4" />
           </button>
@@ -534,7 +561,20 @@ function ChannelView({
         </div>
       )}
 
-      {call && <CallOverlay mode={call} contact={`#${channel.name}`} onEnd={() => setCall(null)} />}
+      {call && busRef.current && (
+        <CallOverlay
+          mode={call.mode}
+          contact={call.peerName ? `@${call.peerName}` : `#${channel.name}`}
+          bus={busRef.current}
+          myName={channel.myName}
+          role={call.role}
+          peerName={call.peerName}
+          remoteOffer={call.remoteOffer}
+          onEnd={() => setCall(null)}
+        />
+      )}
+
+      {easter && <ParamiEasterEgg onClose={() => setEaster(false)} />}
     </div>
   );
 }
@@ -570,3 +610,40 @@ function MessageBubble({ m }: { m: Msg }) {
     </div>
   );
 }
+
+/* ───────────────── Easter Egg ─────────────────
+   Hidden trigger: type the six letters of her name anywhere inside the
+   channel view. There is also a second, even quieter trigger — a
+   single-pixel heart at the very edge of the channel header which only
+   becomes interactive when hovered for a full second. Either path opens
+   this overlay. The encoded line below is rot13 so a casual reader of
+   the bundle won't spot it. */
+function ParamiEasterEgg({ onClose }: { onClose: () => void }) {
+  // rot13("for parami — the only key i never want to rotate. — n1ckar")
+  const rot13 = "sbe cnenzv — gur bayl xrl v arire jnag gb ebgngr. — a1pxne";
+  const decoded = rot13.replace(/[a-zA-Z]/g, (c) => {
+    const base = c <= "Z" ? 65 : 97;
+    return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
+  });
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-[60] bg-background/95 backdrop-blur-2xl flex items-center justify-center p-6 cursor-pointer"
+    >
+      <div className="absolute inset-0 grid-bg opacity-40" />
+      <div className="relative max-w-xl text-center animate-float">
+        <Heart className="mx-auto h-16 w-16 text-magenta animate-pulse-ring" fill="currentColor" />
+        <div className="mt-6 font-display text-3xl md:text-5xl text-gradient animate-gradient">
+          P · A · R · A · M · I
+        </div>
+        <div className="mt-6 text-sm text-muted-foreground italic leading-relaxed">
+          {decoded}
+        </div>
+        <div className="mt-10 text-[10px] uppercase tracking-[0.4em] text-cyan">
+          click anywhere to close · this room never existed
+        </div>
+      </div>
+    </div>
+  );
+}
+

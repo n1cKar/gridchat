@@ -1,8 +1,8 @@
 // Realtime transport over Lovable Cloud broadcast channels.
 // Only encrypted blobs and public presence metadata cross the wire — the AES
 // key never leaves the inviter's tab (it lives in the URL fragment of the
-// invite link). This replaces the previous BroadcastChannel implementation,
-// which only worked between tabs of the same browser.
+// invite link). WebRTC signalling (offer/answer/ICE) also rides this bus;
+// the actual audio/video stream is established peer-to-peer afterwards.
 
 import { supabase } from "@/integrations/supabase/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -12,7 +12,12 @@ export type WireEvent =
   | { t: "join"; name: string; at: number }
   | { t: "leave"; name: string; at: number }
   | { t: "presence-ping"; name: string }
-  | { t: "presence-pong"; name: string };
+  | { t: "presence-pong"; name: string }
+  // WebRTC signalling. `to` scopes the message to a single peer when set.
+  | { t: "call-offer"; from: string; to?: string; mode: "audio" | "video"; sdp: RTCSessionDescriptionInit }
+  | { t: "call-answer"; from: string; to: string; sdp: RTCSessionDescriptionInit }
+  | { t: "call-ice"; from: string; to: string; candidate: RTCIceCandidateInit }
+  | { t: "call-end"; from: string };
 
 type Handler = (e: WireEvent) => void;
 
@@ -39,7 +44,6 @@ export class ChannelBus {
       this.channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
           resolve();
-          // flush anything queued before we connected
           const q = this.queue;
           this.queue = [];
           for (const e of q) this.send(e);
@@ -55,7 +59,6 @@ export class ChannelBus {
 
   send(e: WireEvent) {
     if (this.closed) return;
-    // Fire-and-forget; if not subscribed yet, queue.
     this.channel
       .send({ type: "broadcast", event: "wire", payload: e })
       .then((result) => {
