@@ -10,7 +10,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
+import { reportLovableError } from "../lib/l-error-reporting";
 
 function NotFoundComponent() {
   return (
@@ -77,10 +77,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "GRIDCHAT — Zero-Persistence Encrypted Chat" },
-      { name: "description", content: "End-to-end encrypted, zero-persistence messenger with video & voice. Nothing stored, ever. Developed by n1ckar." },
+      { title: "NULLROOM — Zero-Persistence Encrypted Chat & Calls" },
+      { name: "description", content: "NULLROOM: end-to-end encrypted rooms with voice & video. Nothing is ever stored — close the tab and the room never existed. Developed by n1ckar." },
       { name: "author", content: "n1ckar" },
-      { property: "og:title", content: "GRIDCHAT" },
+      { name: "robots", content: "noindex, nofollow, noarchive, nosnippet" },
+      { httpEquiv: "Cache-Control", content: "no-store, no-cache, must-revalidate" },
+      { property: "og:title", content: "NULLROOM" },
       { property: "og:description", content: "E2EE chat & calls. No cloud storage. No logs. Developed by n1ckar." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

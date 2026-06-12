@@ -145,7 +145,7 @@ export function CallOverlay({
       } catch (e: any) {
         setError(e?.message || "media access denied");
       }
-    })();
+    })(); 
 
     return () => {
       cancelled = true;

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Shield, Lock, Send, Phone, Video, Trash2, Copy, Check,
-  Hash, Users, KeyRound, LogOut, Sparkles, Link2, Radio, Zap, Heart,
+  Hash, Users, KeyRound, LogOut, Sparkles, Link2, Radio, Zap, Heart, Menu, X, EyeOff,
 } from "lucide-react";
 import { CallOverlay, type CallMode, type CallRole } from "./CallOverlay";
+import { PreCallDialog } from "./PreCallDialog";
+import { ScreenGuard } from "./ScreenGuard";
 import {
   generateChannelKey, exportKeyB64, importKeyB64, fingerprint,
   encryptJson, decryptJson, randomId,
@@ -47,9 +49,10 @@ export function ChatApp() {
   // Boot
   useEffect(() => {
     const lines = [
-      "» booting n1ckar//grid v2.0",
+      "» booting nullroom v3.0",
       "» init libsodium · aes-256-gcm ready",
       "» webrtc stack online",
+      "» screen-capture guard armed",
       "» zero-persistence mode: locked",
       "» listening on broadcast channel...",
       "» ready.",
@@ -114,7 +117,7 @@ function BootScreen({ lines }: { lines: string[] }) {
       <div className="absolute inset-0 grid-bg" />
       <div className="w-full max-w-lg glass-strong rounded-xl p-6 holo-edge animate-float">
         <div className="flex items-center gap-2 text-cyan text-xs mb-4 font-display">
-          <Sparkles className="h-3.5 w-3.5" /> N1CKAR // GRID
+          <Sparkles className="h-3.5 w-3.5" /> NULLROOM
         </div>
         <div className="space-y-1 text-sm text-cyan/90 font-mono min-h-[180px]">
           {lines.map((l, i) => <div key={i}>{l}</div>)}
@@ -163,11 +166,11 @@ function Lobby({
             <Radio className="h-3 w-3" /> zero-persistence · e2ee · serverless
           </div>
           <h1 className="font-display text-5xl md:text-7xl font-bold text-gradient animate-gradient">
-            N1CKAR//GRID
+            NULLROOM
           </h1>
-          <p className="mt-4 text-muted-foreground text-sm max-w-xl mx-auto">
-            Forge an encrypted channel. Share an invite link. Talk in the open without ever touching the cloud.
-            Keys live in your browser. Messages live in RAM. Close the tab → it's gone.
+          <p className="mt-4 text-muted-foreground text-sm max-w-xl mx-auto px-2">
+            Forge an encrypted room. Share an invite link. Talk in the open without ever touching the cloud.
+            Keys live in your browser. Messages live in RAM. Close the tab — it never existed.
           </p>
         </header>
 
@@ -315,11 +318,13 @@ function ChannelView({
   onLeave: () => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [pendingCall, setPendingCall] = useState<{ mode: CallMode } | null>(null);
   const [call, setCall] = useState<
-    | { mode: CallMode; role: CallRole; peerName?: string; remoteOffer?: RTCSessionDescriptionInit }
+    | { mode: CallMode; role: CallRole; peerName?: string; remoteOffer?: RTCSessionDescriptionInit; startMuted: boolean; startCamOff: boolean }
     | null
   >(null);
   const [showInvite, setShowInvite] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [copied, setCopied] = useState(false);
   const [easter, setEaster] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -364,7 +369,8 @@ function ChannelView({
       } else if (ev.t === "call-offer") {
         if (ev.from === channel.myName) return;
         if (callRef.current) return;
-        setCall({ mode: ev.mode, role: "callee", peerName: ev.from, remoteOffer: ev.sdp });
+        // Inbound call: also start muted + cam-off by default for the callee.
+        setCall({ mode: ev.mode, role: "callee", peerName: ev.from, remoteOffer: ev.sdp, startMuted: true, startCamOff: true });
       }
     });
 
@@ -427,53 +433,65 @@ function ChannelView({
   const memberList = Array.from(channel.members.keys());
 
   return (
-    <div className="h-screen flex flex-col relative overflow-hidden">
+    <div className="h-[100dvh] flex flex-col relative overflow-hidden">
+      <ScreenGuard active />
       <div className="absolute inset-0 grid-bg pointer-events-none" />
 
-      {/* Top bar */}
-      <header className="relative z-10 h-14 px-4 flex items-center justify-between glass-strong border-b border-border">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-cyan to-magenta flex items-center justify-center font-display font-bold text-primary-foreground text-sm">
+      {/* Top bar — grid on mobile, flex on desktop */}
+      <header className="relative z-10 px-3 sm:px-4 py-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 glass-strong border-b border-border">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <button
+            onClick={() => setShowMembers(true)}
+            className="md:hidden h-9 w-9 shrink-0 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center"
+            aria-label="open members"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+          <div className="h-9 w-9 shrink-0 rounded-lg bg-gradient-to-br from-cyan to-magenta flex items-center justify-center font-display font-bold text-primary-foreground text-sm">
             #
           </div>
           <div className="min-w-0">
-            <div className="font-display text-base text-glow-cyan truncate">{channel.name}</div>
-            <div className="text-[10px] text-muted-foreground flex items-center gap-2">
-              <KeyRound className="h-2.5 w-2.5" /> {channel.fp}
-              <span className="h-1 w-1 rounded-full bg-cyan animate-pulse" />
-              {memberList.length} online
+            <div className="font-display text-sm sm:text-base text-glow-cyan truncate">{channel.name}</div>
+            <div className="text-[10px] text-muted-foreground flex items-center gap-2 truncate">
+              <KeyRound className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate">{channel.fp}</span>
+              <span className="h-1 w-1 rounded-full bg-cyan animate-pulse shrink-0" />
+              <span className="shrink-0">{memberList.length}</span>
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <button
             onClick={() => setShowInvite(true)}
-            className="h-9 px-3 rounded-lg border border-cyan/40 text-cyan text-xs font-display tracking-widest hover:bg-cyan/10 transition flex items-center gap-2"
+            className="h-9 px-2.5 sm:px-3 rounded-lg border border-cyan/40 text-cyan text-[11px] sm:text-xs font-display tracking-widest hover:bg-cyan/10 transition flex items-center gap-1.5"
           >
-            <Link2 className="h-3.5 w-3.5" /> INVITE
+            <Link2 className="h-3.5 w-3.5" /> <span className="hidden xs:inline sm:inline">INVITE</span>
           </button>
-          <button onClick={() => setCall({ mode: "audio", role: "caller" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
+          <button onClick={() => setPendingCall({ mode: "audio" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center" title="voice call">
             <Phone className="h-4 w-4" />
           </button>
-          <button onClick={() => setCall({ mode: "video", role: "caller" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center">
+          <button onClick={() => setPendingCall({ mode: "video" })} className="h-9 w-9 rounded-lg border border-border hover:border-cyan/50 hover:text-cyan transition flex items-center justify-center" title="video call">
             <Video className="h-4 w-4" />
           </button>
-
-          <button onClick={wipe} className="h-9 w-9 rounded-lg border border-border hover:border-destructive hover:text-destructive transition flex items-center justify-center" title="wipe">
+          <button onClick={wipe} className="hidden sm:flex h-9 w-9 rounded-lg border border-border hover:border-destructive hover:text-destructive transition items-center justify-center" title="wipe messages">
             <Trash2 className="h-4 w-4" />
           </button>
-          <button onClick={onLeave} className="h-9 w-9 rounded-lg border border-border hover:border-destructive hover:text-destructive transition flex items-center justify-center" title="leave channel">
+          <button onClick={onLeave} className="h-9 w-9 rounded-lg border border-border hover:border-destructive hover:text-destructive transition flex items-center justify-center" title="leave room">
             <LogOut className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      <div className="relative z-10 flex-1 grid grid-cols-1 md:grid-cols-[1fr_240px] min-h-0">
+
+      <div className="relative z-10 flex-1 grid grid-cols-1 md:grid-cols-[1fr_260px] min-h-0">
         {/* Messages */}
         <main className="flex flex-col min-h-0">
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-3">
-            <div className="text-center text-[10px] text-muted-foreground uppercase tracking-[0.3em] py-3 border border-dashed border-border rounded-xl">
-              — channel forged · AES-256-GCM session · nothing leaves this device —
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-3">
+            <div className="text-center text-[10px] text-muted-foreground uppercase tracking-[0.3em] py-3 px-2 border border-dashed border-border rounded-xl">
+              — room forged · AES-256-GCM · nothing leaves this device —
+            </div>
+            <div className="mx-auto max-w-md text-center text-[10px] text-cyan/80 bg-cyan/5 border border-cyan/30 rounded-lg px-3 py-2 flex items-center justify-center gap-2">
+              <EyeOff className="h-3 w-3" /> screen-capture guard armed · blanks on tab hide · PrintScreen wipes clipboard
             </div>
             {channel.messages.map((m) => (
               <MessageBubble key={m.id} m={m} />
@@ -481,69 +499,71 @@ function ChannelView({
           </div>
 
           {/* Composer */}
-          <div className="p-3 glass-strong border-t border-border">
+          <div className="p-2 sm:p-3 glass-strong border-t border-border pb-[max(env(safe-area-inset-bottom),0.5rem)]">
             <div className="flex items-end gap-2">
-              <div className="flex-1 relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan text-xs font-mono select-none">{">"}</span>
+              <div className="flex-1 relative min-w-0">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-cyan text-xs font-mono select-none pointer-events-none">{">"}</span>
                 <input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && send()}
-                  placeholder="transmit payload · enter to encrypt + broadcast"
+                  placeholder="type a message · enter to send"
                   className="w-full bg-input border border-border rounded-xl pl-7 pr-3 py-3 text-sm focus:outline-none focus:border-cyan/60 focus:neon-border"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                 />
               </div>
               <button
                 onClick={send}
-                className="h-12 px-5 rounded-xl bg-gradient-to-r from-cyan via-violet to-magenta text-primary-foreground font-display font-bold text-sm tracking-widest hover:opacity-95 transition animate-gradient flex items-center gap-2"
+                aria-label="send"
+                className="h-12 px-4 sm:px-5 rounded-xl bg-gradient-to-r from-cyan via-violet to-magenta text-primary-foreground font-display font-bold text-sm tracking-widest hover:opacity-95 transition animate-gradient flex items-center gap-2 shrink-0"
               >
-                <Send className="h-4 w-4" /> SEND
+                <Send className="h-4 w-4" /> <span className="hidden sm:inline">SEND</span>
               </button>
             </div>
-            <div className="mt-1.5 text-[10px] text-muted-foreground flex items-center gap-2">
-              <Lock className="h-2.5 w-2.5 text-cyan" /> encrypted locally before broadcast · no server, no logs · developed by <span className="text-cyan">n1ckar</span>
+            <div className="mt-1.5 text-[10px] text-muted-foreground flex items-center gap-2 truncate">
+              <Lock className="h-2.5 w-2.5 text-cyan shrink-0" />
+              <span className="truncate">encrypted locally · no server, no logs · developed by <span className="text-cyan">n1ckar</span></span>
             </div>
           </div>
         </main>
 
-        {/* Members */}
+        {/* Members — desktop sidebar */}
         <aside className="hidden md:flex flex-col glass border-l border-border min-h-0">
-          <div className="p-3 border-b border-border flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
-            <Users className="h-3 w-3 text-cyan" /> operators · {memberList.length}
-          </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {memberList.map((name) => (
-              <div key={name} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-secondary/50">
-                <div className="relative">
-                  <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan/30 to-magenta/30 border border-cyan/30 flex items-center justify-center text-xs font-display">
-                    {name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-cyan ring-2 ring-background animate-pulse-ring" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs truncate">{name}{name === channel.myName && <span className="text-cyan ml-1">· you</span>}</div>
-                  <div className="text-[9px] text-muted-foreground">online</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="p-3 border-t border-border text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1.5 mb-1"><Shield className="h-3 w-3 text-cyan" /> channel intact</div>
-            <div>messages: {channel.messages.length}</div>
-          </div>
+          <MembersPanel members={memberList} myName={channel.myName} messageCount={channel.messages.length} />
         </aside>
       </div>
 
+      {/* Members — mobile drawer */}
+      {showMembers && (
+        <div className="md:hidden fixed inset-0 z-40 flex" onClick={() => setShowMembers(false)}>
+          <div className="absolute inset-0 bg-background/70 backdrop-blur-sm" />
+          <div onClick={(e) => e.stopPropagation()} className="relative ml-auto h-full w-72 glass-strong border-l border-border flex flex-col">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">members</div>
+              <button onClick={() => setShowMembers(false)} className="h-8 w-8 rounded-lg border border-border hover:border-destructive hover:text-destructive flex items-center justify-center">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <MembersPanel members={memberList} myName={channel.myName} messageCount={channel.messages.length} />
+            <button onClick={wipe} className="m-3 py-2.5 rounded-lg border border-destructive/50 text-destructive text-xs font-display tracking-widest hover:bg-destructive/10 flex items-center justify-center gap-2">
+              <Trash2 className="h-3.5 w-3.5" /> WIPE MESSAGES
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Invite modal */}
       {showInvite && (
-        <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-md flex items-center justify-center p-6" onClick={() => setShowInvite(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg glass-strong rounded-2xl p-6 holo-edge">
+        <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowInvite(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg glass-strong rounded-2xl p-5 sm:p-6 holo-edge">
             <div className="flex items-center gap-2 mb-1">
               <Link2 className="h-4 w-4 text-magenta" />
               <h3 className="font-display text-lg">INVITE LINK</h3>
             </div>
             <p className="text-xs text-muted-foreground mb-4">
-              Share this with people you trust. The decryption key is embedded in the URL fragment after <span className="text-cyan">#</span> — browsers never send fragments to any server.
+              Share this with people you trust. The decryption key is embedded after the <span className="text-cyan">#</span> — browsers never send URL fragments to any server.
             </p>
             <div className="bg-input border border-border rounded-lg p-3 text-[11px] font-mono break-all max-h-32 overflow-y-auto">
               {link}
@@ -561,6 +581,18 @@ function ChannelView({
         </div>
       )}
 
+      {pendingCall && (
+        <PreCallDialog
+          mode={pendingCall.mode}
+          contact={`#${channel.name}`}
+          onCancel={() => setPendingCall(null)}
+          onConfirm={({ startMuted, startCamOff }) => {
+            setCall({ mode: pendingCall.mode, role: "caller", startMuted, startCamOff });
+            setPendingCall(null);
+          }}
+        />
+      )}
+
       {call && busRef.current && (
         <CallOverlay
           mode={call.mode}
@@ -570,6 +602,8 @@ function ChannelView({
           role={call.role}
           peerName={call.peerName}
           remoteOffer={call.remoteOffer}
+          startMuted={call.startMuted}
+          startCamOff={call.startCamOff}
           onEnd={() => setCall(null)}
         />
       )}
@@ -578,6 +612,37 @@ function ChannelView({
     </div>
   );
 }
+
+function MembersPanel({ members, myName, messageCount }: { members: string[]; myName: string; messageCount: number }) {
+  return (
+    <>
+      <div className="p-3 border-b border-border flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <Users className="h-3 w-3 text-cyan" /> members · {members.length}
+      </div>
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {members.map((name) => (
+          <div key={name} className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-secondary/50">
+            <div className="relative">
+              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-cyan/30 to-magenta/30 border border-cyan/30 flex items-center justify-center text-xs font-display">
+                {name.slice(0, 2).toUpperCase()}
+              </div>
+              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-cyan ring-2 ring-background animate-pulse-ring" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs truncate">{name}{name === myName && <span className="text-cyan ml-1">· you</span>}</div>
+              <div className="text-[9px] text-muted-foreground">online</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="p-3 border-t border-border text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1.5 mb-1"><Shield className="h-3 w-3 text-cyan" /> room intact</div>
+        <div>messages: {messageCount}</div>
+      </div>
+    </>
+  );
+}
+
 
 function MessageBubble({ m }: { m: Msg }) {
   if (m.from === "system") {
