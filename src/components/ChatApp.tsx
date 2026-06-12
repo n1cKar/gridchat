@@ -684,8 +684,8 @@ function MessageBubble({ m }: { m: Msg }) {
    this overlay. The encoded line below is rot13 so a casual reader of
    the bundle won't spot it. */
 function ParamiEasterEgg({ onClose }: { onClose: () => void }) {
-  // rot13("for parami — the only key i never want to rotate. — n1ckar")
-  const rot13 = "sbe cnenzv — gur bayl xrl v arire jnag gb ebgngr. — a1pxne";
+  // rot13("for parami — the only key i never want to rotate. — Nimash")
+  const rot13 = "sbe cnenzv — gur bayl xrl v arire jnag gb ebgngr. — Avznfu";
   const decoded = rot13.replace(/[a-zA-Z]/g, (c) => {
     const base = c <= "Z" ? 65 : 97;
     return String.fromCharCode(((c.charCodeAt(0) - base + 13) % 26) + base);
