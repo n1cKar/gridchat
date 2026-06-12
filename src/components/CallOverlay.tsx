@@ -19,6 +19,8 @@ export function CallOverlay({
   role,
   peerName,
   remoteOffer,
+  startMuted,   // 👈 Extracted missing prop
+  startCamOff,  // 👈 Extracted missing prop
   onEnd,
 }: {
   mode: Mode;
@@ -28,6 +30,8 @@ export function CallOverlay({
   role: Role;
   peerName?: string;
   remoteOffer?: RTCSessionDescriptionInit;
+  startMuted: boolean;   // 👈 Declared type
+  startCamOff: boolean;  // 👈 Declared type
   onEnd: () => void;
 }) {
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -39,8 +43,9 @@ export function CallOverlay({
   const remoteSetRef = useRef(false);
   const peerRef = useRef<string | undefined>(peerName);
 
-  const [muted, setMuted] = useState(false);
-  const [camOff, setCamOff] = useState(false);
+  // 👈 Initialized state directly from pre-call configs
+  const [muted, setMuted] = useState(startMuted);
+  const [camOff, setCamOff] = useState(startCamOff);
   const [secs, setSecs] = useState(0);
   const [status, setStatus] = useState<"requesting-media" | "ringing" | "connecting" | "live" | "ended">(
     "requesting-media",
@@ -117,6 +122,11 @@ export function CallOverlay({
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+
+        // 👈 Apply the initial configurations straight to your tracks
+        stream.getAudioTracks().forEach((t) => (t.enabled = !startMuted));
+        stream.getVideoTracks().forEach((t) => (t.enabled = !startCamOff));
+
         localStreamRef.current = stream;
         stream.getTracks().forEach((t) => pc.addTrack(t, stream));
         if (localVideoRef.current && mode === "video") {
@@ -127,7 +137,6 @@ export function CallOverlay({
           setStatus("ringing");
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          // Broadcast to whole channel (no `to`) — first answerer wins.
           bus.send({ t: "call-offer", from: myName, mode, sdp: offer });
         } else if (role === "callee" && remoteOffer) {
           peerRef.current = peerName;
